@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { ChildProcess, exec } from "child_process";
+import { ChildProcess, spawn } from "child_process";
 import { config } from "dotenv";
 import { v4 as uuidv4 } from "uuid";
 import WebSocket from "ws";
@@ -48,7 +48,7 @@ class Daemon {
 		if (!this.allowedToStart) return;
 		this.lastCommandedServerStart = Date.now();
 		// console.log(`dotnet ${process.env.HS_PATH}`);
-		this.hsProcess = exec(`dotnet ${process.env.HS_PATH}`, { cwd: process.env.HS_DIR });
+		this.hsProcess = spawn(`dotnet`, [process.env.HS_PATH], { cwd: process.env.HS_DIR, stdio: "pipe" });
 		this.hsProcess.stdout.on("data", (data) => this.processHSMessage(data));
 		this.hsProcess.stderr.on("data", (data) => console.log(chalk.red(data)));
 
@@ -75,7 +75,9 @@ class Daemon {
 		this.shutdownGracefully();
 	}
 
-	private processHSMessage(message: string) {
+	private processHSMessage(messageBuffer: Buffer | string) {
+		const message = messageBuffer.toString().trim();
+
 		if (message.includes("\n")) {
 			message.split("\n").forEach(part => this.processHSMessage(part.trim()));
 			return;
@@ -214,4 +216,4 @@ process.on('exit', () => app.onExit());
 process.on('SIGINT', () => app.onExit());
 process.on('SIGUSR1', () => app.onExit());
 process.on('SIGUSR2', () => app.onExit());
-process.on('uncaughtException', () => app.onExit());
+// process.on('uncaughtException', () => app.onExit());
