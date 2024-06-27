@@ -1,6 +1,8 @@
 import chalk from "chalk";
 import { ChildProcess, spawn } from "child_process";
 import { config } from "dotenv";
+import fs from "fs";
+import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import WebSocket from "ws";
 
@@ -42,24 +44,38 @@ class Daemon {
 	private lastServerStop = 0;
 
 	private allowedToStart = ENABLE_START;
-	constructor() { }
+	constructor() {}
 
 	public startProcess() {
 		if (!this.allowedToStart) return;
 		this.lastCommandedServerStart = Date.now();
-		// console.log(`dotnet ${process.env.HS_PATH}`);
-		this.hsProcess = spawn(`dotnet`, [process.env.HS_PATH], { cwd: process.env.HS_DIR, stdio: "pipe" });
-		this.hsProcess.stdout.on("data", (data) => this.processHSMessage(data));
-		this.hsProcess.stderr.on("data", (data) => console.log(chalk.red(data)));
 
-		this.hsProcess.on("close", (code) => {
+		const logPath = path.join(process.env.HS_DIR, "log.txt");
+		const logDumpFolder = path.join(process.env.HS_DIR, "logs/");
+		const resultPath = path.join(logDumpFolder, `${Date.now()}.log`);
+
+		if (!fs.existsSync(logDumpFolder)) fs.mkdirSync(logDumpFolder);
+		if (fs.existsSync(logPath)) {
+			console.log(`Copying log to ${resultPath}`);
+			fs.copyFileSync(logPath, resultPath);
+		}
+
+		// console.log(`dotnet ${process.env.HS_PATH}`);
+		this.hsProcess = spawn(`dotnet`, [process.env.HS_PATH], {
+			cwd: process.env.HS_DIR,
+			stdio: "pipe"
+		});
+		this.hsProcess.stdout.on("data", data => this.processHSMessage(data));
+		this.hsProcess.stderr.on("data", data => console.log(chalk.red(data)));
+
+		this.hsProcess.on("close", code => {
 			this.lastServerStop = Date.now();
 			console.log(`HS process exited with code ${code}`);
 			this.clearState();
 			this.startProcess();
 		});
 
-		this.hsProcess.on("error", (err) => {
+		this.hsProcess.on("error", err => {
 			console.log(`HS process error: ${err}`);
 			this.clearState();
 			this.startProcess();
@@ -88,7 +104,6 @@ class Daemon {
 		if (message.includes(`[ERROR]`)) console.log(chalk.red(message));
 		else if (message.includes(`[WARN]`)) console.log(chalk.yellow(message));
 		else console.log(message);
-
 
 		if (message.includes("SM Leave")) this.seenSmLeaveMessage = true;
 		if (message.includes("Lobby creation failed")) this.seenLobbyCreationFailedMessage = true;
@@ -122,7 +137,7 @@ class Daemon {
 			lastUserJoinSuccess: this.lastUserJoinSuccess,
 			lastCommandedServerStart: this.lastCommandedServerStart,
 			lastServerStop: this.lastServerStop,
-			lastLogMessage: this.lastLogMessage,
+			lastLogMessage: this.lastLogMessage
 		};
 	}
 }
@@ -150,10 +165,13 @@ class Application {
 		this.ws.on("open", () => {
 			console.log(`WS connection opened`);
 			this.isConnected = true;
-			this.send({ type: "authenticate_daemon", data: { token: process.env.WS_TOKEN } });
+			this.send({
+				type: "authenticate_daemon",
+				data: { token: process.env.WS_TOKEN }
+			});
 		});
 
-		this.ws.on("error", (err) => console.log(`WS error: ${err}`));
+		this.ws.on("error", err => console.log(`WS error: ${err}`));
 
 		this.ws.on("close", () => {
 			console.log(`WS connection closed. Retrying in 1s`);
@@ -161,7 +179,7 @@ class Application {
 			setTimeout(() => this.configureWs(), 1000);
 		});
 
-		this.ws.on("message", (data) => {
+		this.ws.on("message", data => {
 			this.handleMessage(data.toString());
 		});
 	}
@@ -170,11 +188,19 @@ class Application {
 		try {
 			const packet = JSON.parse(message) as Packet;
 			switch (packet.type) {
-				case "ping": this.send({ type: "pong" }); break;
-				case "daemon_restart": this.daemon.shutdownGracefully(); break;
-				case "daemon_report_request": this.send({ type: "daemon_report", data: this.daemon.getReport() }); break;
+				case "ping":
+					this.send({ type: "pong" });
+					break;
+				case "daemon_restart":
+					this.daemon.shutdownGracefully();
+					break;
+				case "daemon_report_request":
+					this.send({
+						type: "daemon_report",
+						data: this.daemon.getReport()
+					});
+					break;
 			}
-
 		} catch (e) {
 			console.log(`Error parsing packet: ${message}`);
 			console.log(e);
@@ -185,7 +211,7 @@ class Application {
 		if (!this.isConnected) {
 			console.log(`Unable to send packet ${data.type} - not connected`);
 			return;
-		};
+		}
 		const result = { pid: uuidv4(), ...data };
 		this.ws.send(JSON.stringify(result));
 	}
@@ -210,10 +236,8 @@ class Application {
 const app = new Application();
 app.init();
 
-
-
-process.on('exit', () => app.onExit());
-process.on('SIGINT', () => app.onExit());
-process.on('SIGUSR1', () => app.onExit());
-process.on('SIGUSR2', () => app.onExit());
+process.on("exit", () => app.onExit());
+process.on("SIGINT", () => app.onExit());
+process.on("SIGUSR1", () => app.onExit());
+process.on("SIGUSR2", () => app.onExit());
 // process.on('uncaughtException', () => app.onExit());
