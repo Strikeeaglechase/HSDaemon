@@ -19,6 +19,7 @@
 		"ws": "^8.14.0"
 	},
 	"devDependencies": {
+		"@types/node": "^20.14.9",
 		"@types/uuid": "^9.0.3"
 	}
 }
